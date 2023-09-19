@@ -1,7 +1,8 @@
-#![feature(portable_simd)]
 pub mod database;
 pub mod error;
 mod jsonrpc;
+
+use astro_float::BigFloat;
 
 pub enum Method {
     Create,
@@ -19,7 +20,7 @@ pub enum BinaryOps {
 
 pub enum Param {
     Name(Box<str>),
-    Number(f64),
+    Number(BigFloat),
 }
 
 pub trait JsonInternal {
@@ -33,6 +34,8 @@ pub mod prelude {
         pub use crate::error::*;
         pub use crate::jsonrpc::v1::*;
         pub use crate::{JsonInternal, Method, Param};
+        use astro_float::BigFloat;
+        use std::str::FromStr;
 
         pub struct RequestBuilder {
             body: ReqBody,
@@ -117,7 +120,7 @@ pub mod prelude {
                     .clone()
                     .into_iter()
                     .map(|param| {
-                        if let Ok(float) = param.parse::<f64>() {
+                        if let Ok(float) = BigFloat::from_str(&param) {
                             Param::Number(float)
                         } else {
                             Param::Name(param.into_boxed_str())
