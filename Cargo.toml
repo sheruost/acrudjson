@@ -3,8 +3,8 @@ name = "acrudjson"
 version = "0.1.0"
 description = "Modern Rustlang with async support for CRUD operation based on JSONRPC specification."
 authors = ["Sheldon Knuth <sheldon@abackbone.net>"]
-repository = "https://github.com/sheruost/acrudjson/"
-license = "MIT"
+repository = "https://github.com/sheruost/acrudjson"
+license = "Apache-2.0/MIT"
 readme = "README.md"
 edition = "2021"
 
