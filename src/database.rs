@@ -3,9 +3,13 @@ use crate::prelude::v1::*;
 use crate::{BinaryOps, Method, Param};
 
 use std::path::{Path, PathBuf};
+use std::str::{self, FromStr};
 
+use astro_float::{BigFloat, RoundingMode};
 use sled::{Db, Tree};
-use zerocopy::{AsBytes, ByteOrder, ByteSlice, LittleEndian};
+use zerocopy::{AsBytes, ByteSlice};
+
+const BIG_FLOAT_PRECISION: usize = 1024;
 
 pub struct ConnectionPool {
     prefix: PathBuf,
@@ -113,14 +117,31 @@ impl UserDatabase {
                 Some(Param::Name(second_key)) => match self.fetch(&key) {
                     Ok(Some(left_value)) => match self.fetch(&second_key) {
                         Ok(Some(right_value)) => {
-                            let result = match op {
-                                BinaryOps::Add => left_value + right_value,
-                                BinaryOps::Subtract => left_value - right_value,
-                                BinaryOps::Multiply => left_value * right_value,
-                                BinaryOps::Divide => left_value / right_value,
+                            match op {
+                                BinaryOps::Add => left_value.add(
+                                    &right_value,
+                                    BIG_FLOAT_PRECISION,
+                                    RoundingMode::ToEven,
+                                ),
+                                BinaryOps::Subtract => left_value.sub(
+                                    &right_value,
+                                    BIG_FLOAT_PRECISION,
+                                    RoundingMode::ToEven,
+                                ),
+                                BinaryOps::Multiply => left_value.mul(
+                                    &right_value,
+                                    BIG_FLOAT_PRECISION,
+                                    RoundingMode::ToEven,
+                                ),
+                                BinaryOps::Divide => left_value.div(
+                                    &right_value,
+                                    BIG_FLOAT_PRECISION,
+                                    RoundingMode::ToEven,
+                                ),
                             };
 
-                            return ResponseBuilder::new(result.to_string(), c_id).build();
+                            let result_string = serde_json::to_string(&left_value).unwrap();
+                            return ResponseBuilder::new(result_string, c_id).build();
                         }
                         Ok(None) => {
                             return ResponseBuilder::error(
@@ -161,38 +182,42 @@ impl UserDatabase {
         }
     }
 
-    fn create(&self, key: &str, value: f64) -> Result<(), ServerError> {
+    fn create(&self, key: &str, value: BigFloat) -> Result<(), ServerError> {
+        let float_string = serde_json::to_string(&value).unwrap();
         Ok(self.tree.compare_and_swap(
             key.as_bytes(),
             None as Option<&[u8]>,
-            Some(&value.to_le_bytes()),
+            Some(float_string.as_bytes()),
         )??)
     }
 
-    fn fetch(&self, key: &str) -> Result<Option<f64>, ServerError> {
+    fn fetch(&self, key: &str) -> Result<Option<BigFloat>, ServerError> {
         if let Some(fetched) = self.tree.get(key.as_bytes())? {
-            let number = LittleEndian::read_f64(&fetched);
-            Ok(Some(number))
+            let float_string = str::from_utf8(&fetched)?;
+            let big_float = BigFloat::from_str(float_string).unwrap();
+            Ok(Some(big_float))
         } else {
-            unimplemented!()
+            Ok(None)
         }
     }
 
-    fn update(&self, key: &str, new_value: f64) -> Result<Option<f64>, ServerError> {
-        if let Some(prev_value) = self.tree.insert(key.as_bytes(), &new_value.to_le_bytes())? {
-            let number = LittleEndian::read_f64(&prev_value);
-            Ok(Some(number))
+    fn update(&self, key: &str, new_value: BigFloat) -> Result<Option<BigFloat>, ServerError> {
+        let float_string = serde_json::to_string(&new_value).unwrap();
+        if let Some(prev_value) = self.tree.insert(key.as_bytes(), float_string.as_bytes())? {
+            let float_string = str::from_utf8(&prev_value)?;
+            let big_float = BigFloat::from_str(float_string).unwrap();
+            Ok(Some(big_float))
         } else {
-            unimplemented!()
+            Ok(None)
         }
     }
 
     fn delete(&self, key: &str) -> Result<Option<String>, ServerError> {
         if let Some(removed) = self.tree.remove(key.as_bytes())? {
-            let param = std::str::from_utf8(&removed)?;
+            let param = str::from_utf8(&removed)?;
             Ok(Some(param.to_string()))
         } else {
-            unimplemented!()
+            Ok(None)
         }
     }
 }
