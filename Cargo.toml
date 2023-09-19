@@ -1,0 +1,32 @@
+[package]
+name = "acrudjson"
+version = "0.1.0"
+description = "Modern Rustlang with async support for CRUD operation based on JSONRPC specification."
+authors = ["Sheldon Knuth <sheldon@abackbone.net>"]
+repository = "https://github.com/sheruost/async-jsonrpc/"
+license = "MIT"
+readme = "README.md"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+crc32fast = "1"
+log = "0.4"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sled = "0.34.7"
+zerocopy = "0.7"
+
+[dev-dependencies]
+clap = "4.4"
+env_logger = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time"] }
+
+[[example]]
+name = "server"
+path = "examples/server.rs"
+
+[[example]]
+name = "acrud-cli"
+path = "examples/client.rs"
