@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReqBody {
+    pub jsonrpc: String,
     pub method: String,
     pub params: Vec<String>,
     pub id: usize,

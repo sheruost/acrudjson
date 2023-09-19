@@ -1,4 +1,4 @@
-#![feature(never_type)]
+#![feature(portable_simd)]
 pub mod database;
 pub mod error;
 mod jsonrpc;
@@ -42,6 +42,7 @@ pub mod prelude {
             pub fn new(method: Method, params: Vec<String>, id: usize) -> Self {
                 RequestBuilder {
                     body: ReqBody {
+                        jsonrpc: "1.0".to_string(),
                         method: method.into(),
                         params,
                         id,
