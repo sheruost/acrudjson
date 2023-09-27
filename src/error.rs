@@ -24,6 +24,8 @@ pub enum ServerError {
     ParseParamLiteral(#[from] std::str::Utf8Error),
     #[error("failed to parse param values into floating number")]
     ParseParamNumeric,
+    #[error("failed to parse big float from string literal value, caused by internal I/O error.")]
+    ParseBigFloatFromStr,
     #[error("missing {0} parameter")]
     MissingParam(usize),
     #[error("`{0}` is not found in user database")]
@@ -70,7 +72,6 @@ impl From<ServerError> for ErrorMsg {
             ServerError::DbKeyUpdate(key) => ErrorMsg(format!(
                 "`{key}` has already been deleted so it cannot be updated."
             )),
-            ServerError::Io(_) => ErrorMsg("internal I/O error.".to_string()),
             ServerError::SledCas(_) => {
                 ErrorMsg("failed to create new value in user database.".to_string())
             }
@@ -80,6 +81,7 @@ impl From<ServerError> for ErrorMsg {
             ServerError::ValueError { .. } => {
                 ErrorMsg("failed to fetch number from JSON request \"params\" field.".to_string())
             }
+            _ => ErrorMsg("internal I/O error.".to_string()),
         }
     }
 }
