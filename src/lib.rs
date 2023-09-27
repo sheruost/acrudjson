@@ -4,6 +4,7 @@ mod jsonrpc;
 
 use astro_float::BigFloat;
 
+#[derive(Debug)]
 pub enum Method {
     Create,
     Update,
@@ -11,6 +12,7 @@ pub enum Method {
     Binary(BinaryOps),
 }
 
+#[derive(Debug)]
 pub enum BinaryOps {
     Add,
     Subtract,
@@ -18,6 +20,7 @@ pub enum BinaryOps {
     Divide,
 }
 
+#[derive(Debug)]
 pub enum Param {
     Name(Box<str>),
     Number(BigFloat),
@@ -34,14 +37,21 @@ pub mod prelude {
         pub use crate::error::*;
         pub use crate::jsonrpc::v1::*;
         pub use crate::{JsonInternal, Method, Param};
-        use astro_float::BigFloat;
         use std::str::FromStr;
+
+        use astro_float::BigFloat;
+        use log::debug;
 
         pub struct RequestBuilder {
             body: ReqBody,
         }
 
         impl RequestBuilder {
+            pub fn from_json(json_string: &str) -> Result<Self, ClientError> {
+                let body: ReqBody = serde_json::from_str(json_string)?;
+                Ok(RequestBuilder { body })
+            }
+
             pub fn new(method: Method, params: Vec<String>, id: usize) -> Self {
                 RequestBuilder {
                     body: ReqBody {
@@ -111,6 +121,7 @@ pub mod prelude {
 
         impl JsonInternal for ReqBody {
             fn parse_method(&self) -> Method {
+                debug!("parsed method (ID: {}): {}", self.id, &self.method);
                 self.method.clone().into()
             }
 
@@ -121,13 +132,19 @@ pub mod prelude {
                     .into_iter()
                     .map(|param| {
                         if let Ok(float) = BigFloat::from_str(&param) {
-                            Param::Number(float)
+                            if float.is_nan() {
+                                Param::Name(param.into_boxed_str())
+                            } else {
+                                Param::Number(float)
+                            }
                         } else {
-                            Param::Name(param.into_boxed_str())
+                            // the error is unreachable which is omitted by BigFloat::NAN
+                            unreachable!()
                         }
                     })
                     .collect();
 
+                debug!("parsed params (ID: {}): {:?}", self.id, results);
                 results
             }
         }
