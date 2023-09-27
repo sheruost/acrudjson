@@ -36,6 +36,7 @@ const SERVER_PORT: u16 = 9999;
 const UDP_DATAGRAM_MAX_SIZE: usize = 65536;
 
 fn main() {
+    std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
     let valid_cpu_cores_count = std::thread::available_parallelism().unwrap().get();
     let rt = Builder::new_multi_thread()
@@ -61,6 +62,7 @@ fn main() {
             let peer = peer_addr.clone();
             let send_sock = recv_sock.clone();
             tokio::spawn(async move {
+                // composing JSON response on database connection timeout.
                 if let Err(_) = timeout(
                     ttl,
                     process(send_sock.clone(), pool_clone, peer, payload.clone()),
@@ -114,6 +116,10 @@ async fn process(
                 ),
                 Err(e) => error!("failed to send response ID: {}, reason: {}", req_body.id, e),
             }
+        } else {
+            error!("failed to parse JSON request body, checksum unmatched.");
         }
+    } else {
+        error!("unrecognisable payload from receiving UDP datagram.");
     }
 }
