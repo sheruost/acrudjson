@@ -3,9 +3,10 @@ use crate::prelude::v1::*;
 use crate::{BinaryOps, Method, Param};
 
 use std::path::{Path, PathBuf};
-use std::str::{self, FromStr};
+use std::str::FromStr;
 
 use astro_float::{BigFloat, RoundingMode};
+use log::{error, info};
 use sled::{Db, Tree};
 use zerocopy::{AsBytes, ByteSlice};
 
@@ -117,7 +118,7 @@ impl UserDatabase {
                 Some(Param::Name(second_key)) => match self.fetch(&key) {
                     Ok(Some(left_value)) => match self.fetch(&second_key) {
                         Ok(Some(right_value)) => {
-                            match op {
+                            let result = match op {
                                 BinaryOps::Add => left_value.add(
                                     &right_value,
                                     BIG_FLOAT_PRECISION,
@@ -140,7 +141,7 @@ impl UserDatabase {
                                 ),
                             };
 
-                            let result_string = serde_json::to_string(&left_value).unwrap();
+                            let result_string = serde_json::to_string(&result).unwrap();
                             return ResponseBuilder::new(result_string, c_id).build();
                         }
                         Ok(None) => {
@@ -183,39 +184,66 @@ impl UserDatabase {
     }
 
     fn create(&self, key: &str, value: BigFloat) -> Result<(), ServerError> {
-        let float_string = serde_json::to_string(&value).unwrap();
-        Ok(self.tree.compare_and_swap(
+        let float_string = serde_json::to_string(&value)?;
+        match self.tree.compare_and_swap(
             key.as_bytes(),
             None as Option<&[u8]>,
             Some(float_string.as_bytes()),
-        )??)
+        )? {
+            Ok(_) => {
+                info!("new number has been created. {key}={value}");
+                Ok(())
+            }
+            Err(e) => {
+                error!("{e}");
+                Err(e.into())
+            }
+        }
     }
 
     fn fetch(&self, key: &str) -> Result<Option<BigFloat>, ServerError> {
         if let Some(fetched) = self.tree.get(key.as_bytes())? {
-            let float_string = str::from_utf8(&fetched)?;
-            let big_float = BigFloat::from_str(float_string).unwrap();
-            Ok(Some(big_float))
+            let float_string = serde_json::from_slice(fetched.as_bytes())?;
+            if let Ok(big_float) = BigFloat::from_str(float_string) {
+                if big_float.is_nan() {
+                    error!("unexpected NAN fetched by [\"{key}\"] from user database.");
+                    Ok(None)
+                } else {
+                    Ok(Some(big_float))
+                }
+            } else {
+                Err(ServerError::ParseBigFloatFromStr)
+            }
         } else {
             Ok(None)
         }
     }
 
     fn update(&self, key: &str, new_value: BigFloat) -> Result<Option<BigFloat>, ServerError> {
-        let float_string = serde_json::to_string(&new_value).unwrap();
-        if let Some(prev_value) = self.tree.insert(key.as_bytes(), float_string.as_bytes())? {
-            let float_string = str::from_utf8(&prev_value)?;
-            let big_float = BigFloat::from_str(float_string).unwrap();
-            Ok(Some(big_float))
+        if new_value.is_nan() {
+            error!("update value with NAN is prohibited");
+            Err(ServerError::ParseBigFloatFromStr)
         } else {
-            Ok(None)
+            let new_float_str = serde_json::to_string(&new_value)?;
+            if let Some(prev_value) = self.tree.insert(key.as_bytes(), new_float_str.as_bytes())? {
+                let prev_value_str = serde_json::from_slice(prev_value.as_bytes())?;
+                if let Ok(old_float) = BigFloat::from_str(prev_value_str) {
+                    info!("update [\"{key}\"] value from {prev_value_str} to {new_float_str}");
+                    Ok(Some(old_float))
+                } else {
+                    Err(ServerError::ParseBigFloatFromStr)
+                }
+            } else {
+                Ok(None)
+            }
         }
     }
 
     fn delete(&self, key: &str) -> Result<Option<String>, ServerError> {
         if let Some(removed) = self.tree.remove(key.as_bytes())? {
-            let param = str::from_utf8(&removed)?;
-            Ok(Some(param.to_string()))
+            info!("[\"{key}\"] entry has been deleted from user database.");
+            let deleted_value = serde_json::from_slice(removed.as_bytes())?;
+            Ok(Some(deleted_value))
         } else {
             Ok(None)
         }
