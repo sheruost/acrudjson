@@ -114,6 +114,8 @@ impl UserDatabase {
                     return ResponseBuilder::success(c_id).build();
                 }
                 Err(e) => {
+                    // print error message of custom DbKeyNotFound error.
+                    error!("{e}");
                     return ResponseBuilder::error(e.into(), c_id).build();
                 }
             },
@@ -209,13 +211,12 @@ impl UserDatabase {
         }
     }
 
-    fn delete(&self, key: &str) -> Result<Option<String>, ServerError> {
-        if let Some(removed) = self.tree.remove(key.as_bytes())? {
+    fn delete(&self, key: &str) -> Result<(), ServerError> {
+        if let Some(_deleted) = self.tree.remove(key.as_bytes())? {
             info!("[\"{key}\"] entry has been deleted from user database.");
-            let deleted_value = serde_json::from_slice(removed.as_bytes())?;
-            Ok(Some(deleted_value))
+            Ok(())
         } else {
-            Ok(None)
+            Err(ServerError::DbKeyNotFound(key.into()))
         }
     }
 }
