@@ -40,13 +40,16 @@ pub enum ServerError {
     ValueError { expect: Box<str>, actual: Box<str> },
 }
 
+/// The content of error message required by JSON "error" attribute in JSON-RPC response.
 pub struct ErrorMsg(String);
 
 impl ErrorMsg {
+    /// create new `ErrorMsg`
     pub fn new(msg: String) -> Self {
         ErrorMsg(msg)
     }
 
+    /// consume `Self` and return inner value.
     pub fn into_inner(self) -> String {
         self.0
     }

@@ -10,16 +10,23 @@ use log::{error, info};
 use sled::{Db, Tree};
 use zerocopy::{AsBytes, ByteSlice};
 
+/// The connection pool to maintain [`sled`] database running instance and path prefix to storage
+/// file.
+///
+/// [`sled`]: https://docs.rs/sled/latest/sled/
 pub struct ConnectionPool {
     prefix: PathBuf,
     db: Db,
 }
 
 impl ConnectionPool {
+    /// get the filepath of `sled::Db` storage file.
     pub fn get_filepath(&self) -> &Path {
         self.prefix.as_path()
     }
 
+    /// initialise and start the connection pool by provided filepath as file prefix of `sled`
+    /// database instance.
     pub fn init(path: impl AsRef<Path>) -> Result<Self, ServerError> {
         let prefix = path.as_ref().to_path_buf();
         let db = sled::open(path)?;
@@ -27,6 +34,7 @@ impl ConnectionPool {
         Ok(ConnectionPool { prefix, db })
     }
 
+    /// open user storage tree by provided `user token`.
     pub fn open_user_database(&self, token: impl ByteSlice) -> Result<UserDatabase, ServerError> {
         let tree = self.db.open_tree(token.as_bytes())?;
 
@@ -37,16 +45,27 @@ impl ConnectionPool {
     }
 }
 
+/// A user database tree identified by `token`(TODO) implemented with `sled`, which is a high-performance, thread-safe
+/// and fully atomic embedded database.
+///
+/// TODO: implement Token instance which can be used to generate user-token for individial access
+/// to data storage in frontend.
 pub struct UserDatabase {
     token: Vec<u8>,
     tree: Tree,
 }
 
 impl UserDatabase {
+    /// get user `token`
     pub fn get_token(&self) -> &[u8] {
         &self.token
     }
 
+    /// perform ACID transactions by provided [`Method`] and [`Param`]s with JSON request
+    /// identifier used to create JSON response at the end of invocation.
+    ///
+    /// [`Method`]: crate::Method
+    /// [`Param`]: crate::Param
     pub fn transaction(&self, method: Method, params: Vec<Param>, c_id: usize) -> Vec<u8> {
         // resolve values from Params
         let mut param_iter = params.into_iter();
