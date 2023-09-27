@@ -126,7 +126,7 @@ async fn main() -> anyhow::Result<()> {
         {
             "jsonrpc":"1.0",
             "method":"update",
-            "params":["grav_param", "428208470021099.94"],
+            "params":["grav_const", "428208470021099.94"],
             "id":5
         }
     "#;
@@ -138,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
         {
             "jsonrpc":"1.0",
             "method":"delete",
-            "params":["grav_param"],
+            "params":["grav_const"],
             "id":6
         }
     "#;

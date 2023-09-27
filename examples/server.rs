@@ -36,7 +36,7 @@ const SERVER_PORT: u16 = 9999;
 const UDP_DATAGRAM_MAX_SIZE: usize = 65536;
 
 fn main() {
-    std::env::set_var("RUST_LOG", "debug");
+    std::env::set_var("RUST_LOG", "info");
     env_logger::init();
     let valid_cpu_cores_count = std::thread::available_parallelism().unwrap().get();
     let rt = Builder::new_multi_thread()
