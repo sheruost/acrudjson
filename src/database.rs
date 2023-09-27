@@ -114,9 +114,9 @@ impl UserDatabase {
                     return ResponseBuilder::error(e.into(), c_id).build();
                 }
             },
-            Method::Binary(op) => match param_iter.next() {
-                Some(Param::Name(second_key)) => match self.fetch(&key) {
-                    Ok(Some(left_value)) => match self.fetch(&second_key) {
+            Method::Binary(op) => match self.fetch(&key) {
+                Ok(Some(left_value)) => match param_iter.next() {
+                    Some(Param::Name(second_key)) => match self.fetch(&second_key) {
                         Ok(Some(right_value)) => {
                             let result = match op {
                                 BinaryOps::Add => left_value.add(
@@ -156,28 +156,47 @@ impl UserDatabase {
                             return ResponseBuilder::error(e.into(), c_id).build();
                         }
                     },
-                    Ok(None) => {
-                        return ResponseBuilder::error(
-                            ServerError::DbKeyNotFound(second_key.to_string().into_boxed_str())
-                                .into(),
-                            c_id,
-                        )
-                        .build();
+                    Some(Param::Number(right_value)) => {
+                        let result = match op {
+                            BinaryOps::Add => left_value.add(
+                                &right_value,
+                                BIG_FLOAT_PRECISION,
+                                RoundingMode::ToEven,
+                            ),
+                            BinaryOps::Subtract => left_value.sub(
+                                &right_value,
+                                BIG_FLOAT_PRECISION,
+                                RoundingMode::ToEven,
+                            ),
+                            BinaryOps::Multiply => left_value.mul(
+                                &right_value,
+                                BIG_FLOAT_PRECISION,
+                                RoundingMode::ToEven,
+                            ),
+                            BinaryOps::Divide => left_value.div(
+                                &right_value,
+                                BIG_FLOAT_PRECISION,
+                                RoundingMode::ToEven,
+                            ),
+                        };
+
+                        let result_string = serde_json::to_string(&result).unwrap();
+                        return ResponseBuilder::new(result_string, c_id).build();
                     }
-                    Err(e) => {
-                        return ResponseBuilder::error(e.into(), c_id).build();
+                    None => {
+                        return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id)
+                            .build();
                     }
                 },
-                Some(_) => {
+                Ok(None) => {
                     return ResponseBuilder::error(
-                        ErrorMsg::new(format!("the first parameter must be string literal.")),
+                        ServerError::DbKeyNotFound(key.to_string().into_boxed_str()).into(),
                         c_id,
                     )
                     .build();
                 }
-                None => {
-                    return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id)
-                        .build();
+                Err(e) => {
+                    return ResponseBuilder::error(e.into(), c_id).build();
                 }
             },
         }
