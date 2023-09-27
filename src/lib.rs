@@ -2,9 +2,8 @@ pub mod database;
 pub mod error;
 mod jsonrpc;
 
-use astro_float::BigFloat;
+use bigdecimal::BigDecimal;
 
-#[derive(Debug)]
 pub enum Method {
     Create,
     Update,
@@ -12,7 +11,6 @@ pub enum Method {
     Binary(BinaryOps),
 }
 
-#[derive(Debug)]
 pub enum BinaryOps {
     Add,
     Subtract,
@@ -20,10 +18,9 @@ pub enum BinaryOps {
     Divide,
 }
 
-#[derive(Debug)]
 pub enum Param {
     Name(Box<str>),
-    Number(BigFloat),
+    Number(BigDecimal),
 }
 
 pub trait JsonInternal {
@@ -37,10 +34,10 @@ pub mod prelude {
         pub use crate::error::*;
         pub use crate::jsonrpc::v1::*;
         pub use crate::{JsonInternal, Method, Param};
+
         use std::str::FromStr;
 
-        use astro_float::BigFloat;
-        use log::debug;
+        use bigdecimal::BigDecimal;
 
         pub struct RequestBuilder {
             body: ReqBody,
@@ -121,7 +118,6 @@ pub mod prelude {
 
         impl JsonInternal for ReqBody {
             fn parse_method(&self) -> Method {
-                debug!("parsed method (ID: {}): {}", self.id, &self.method);
                 self.method.clone().into()
             }
 
@@ -131,20 +127,14 @@ pub mod prelude {
                     .clone()
                     .into_iter()
                     .map(|param| {
-                        if let Ok(float) = BigFloat::from_str(&param) {
-                            if float.is_nan() {
-                                Param::Name(param.into_boxed_str())
-                            } else {
-                                Param::Number(float)
-                            }
+                        if let Ok(number) = BigDecimal::from_str(&param) {
+                            Param::Number(number)
                         } else {
-                            // the error is unreachable which is omitted by BigFloat::NAN
-                            unreachable!()
+                            Param::Name(param.into_boxed_str())
                         }
                     })
                     .collect();
 
-                debug!("parsed params (ID: {}): {:?}", self.id, results);
                 results
             }
         }

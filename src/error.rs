@@ -22,19 +22,17 @@ pub enum ServerError {
     ParseJson(#[from] serde_json::Error),
     #[error("failed to parse param values into utf8-string, error: {0}")]
     ParseParamLiteral(#[from] std::str::Utf8Error),
-    #[error("failed to parse param values into floating number")]
-    ParseParamNumeric,
-    #[error("failed to parse big float from string literal value, caused by internal I/O error.")]
-    ParseBigFloatFromStr,
+    #[error("failed to parse param values into big decimal number.")]
+    ParseParamNumeric(#[from] bigdecimal::ParseBigDecimalError),
     #[error("missing {0} parameter")]
     MissingParam(usize),
     #[error("`{0}` is not found in user database")]
     DbKeyNotFound(Box<str>),
-    #[error("`{0}` has already been deleted so it cannot be updated")]
+    #[error("`{0}` does not exist so it cannot be updated from user database")]
     DbKeyUpdate(Box<str>),
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error("failed to update value in user database, reason: {0}")]
+    #[error("failed to update value from user database, reason: {0}")]
     SledCas(#[from] sled::CompareAndSwapError),
     #[error("user database error, reason: {0}")]
     SledInternal(#[from] sled::Error),
@@ -64,14 +62,12 @@ impl From<ServerError> for ErrorMsg {
             ServerError::ParseParamLiteral(_) => {
                 ErrorMsg("failed to parse parameter into utf8-string.".to_string())
             }
-            ServerError::ParseParamNumeric => {
+            ServerError::ParseParamNumeric(_) => {
                 ErrorMsg("failed to parse paramater into floating number.".to_string())
             }
             ServerError::MissingParam(count) => ErrorMsg(format!("missing {count} parameter.")),
             ServerError::DbKeyNotFound(key) => ErrorMsg(format!("`{key}` not found.")),
-            ServerError::DbKeyUpdate(key) => ErrorMsg(format!(
-                "`{key}` has already been deleted so it cannot be updated."
-            )),
+            ServerError::DbKeyUpdate(key) => ErrorMsg(format!("`{key}` does not exist.")),
             ServerError::SledCas(_) => {
                 ErrorMsg("failed to create new value in user database.".to_string())
             }
