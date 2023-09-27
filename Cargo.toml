@@ -1,11 +1,12 @@
 [package]
 name = "acrudjson"
-version = "0.1.0"
+version = "0.1.1"
 description = "Modern Rustlang with async support for CRUD operation based on JSONRPC specification."
 authors = ["Sheldon Knuth <sheldon@abackbone.net>"]
 repository = "https://github.com/sheruost/acrudjson"
 license = "Apache-2.0/MIT"
 readme = "README.md"
+rust = "1.61"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -21,7 +22,6 @@ zerocopy = "0.7"
 
 [dev-dependencies]
 anyhow = "1"
-clap = "4.4"
 env_logger = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time"] }
 
@@ -30,5 +30,5 @@ name = "server"
 path = "examples/server.rs"
 
 [[example]]
-name = "acrud-cli"
+name = "client"
 path = "examples/client.rs"
