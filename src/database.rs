@@ -3,14 +3,12 @@ use crate::prelude::v1::*;
 use crate::{BinaryOps, Method, Param};
 
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::str::{self, FromStr};
 
-use astro_float::{BigFloat, RoundingMode};
+use bigdecimal::BigDecimal;
 use log::{error, info};
 use sled::{Db, Tree};
 use zerocopy::{AsBytes, ByteSlice};
-
-const BIG_FLOAT_PRECISION: usize = 1024;
 
 pub struct ConnectionPool {
     prefix: PathBuf,
@@ -77,8 +75,11 @@ impl UserDatabase {
                     }
                 },
                 Some(_) => {
-                    return ResponseBuilder::error(ServerError::ParseParamNumeric.into(), c_id)
-                        .build();
+                    return ResponseBuilder::error(
+                        ErrorMsg::new(format!("the second parameter must be decimal number.")),
+                        c_id,
+                    )
+                    .build();
                 }
                 None => {
                     return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id)
@@ -91,12 +92,14 @@ impl UserDatabase {
                         return ResponseBuilder::success(c_id).build();
                     }
                     Err(e) => {
+                        // print error message of custom DbKeyUpdate error.
+                        error!("{e}");
                         return ResponseBuilder::error(e.into(), c_id).build();
                     }
                 },
                 Some(_) => {
                     return ResponseBuilder::error(
-                        ErrorMsg::new(format!("the second parameter must be a number.")),
+                        ErrorMsg::new(format!("the second parameter must be decimal number.")),
                         c_id,
                     )
                     .build();
@@ -119,30 +122,13 @@ impl UserDatabase {
                     Some(Param::Name(second_key)) => match self.fetch(&second_key) {
                         Ok(Some(right_value)) => {
                             let result = match op {
-                                BinaryOps::Add => left_value.add(
-                                    &right_value,
-                                    BIG_FLOAT_PRECISION,
-                                    RoundingMode::ToEven,
-                                ),
-                                BinaryOps::Subtract => left_value.sub(
-                                    &right_value,
-                                    BIG_FLOAT_PRECISION,
-                                    RoundingMode::ToEven,
-                                ),
-                                BinaryOps::Multiply => left_value.mul(
-                                    &right_value,
-                                    BIG_FLOAT_PRECISION,
-                                    RoundingMode::ToEven,
-                                ),
-                                BinaryOps::Divide => left_value.div(
-                                    &right_value,
-                                    BIG_FLOAT_PRECISION,
-                                    RoundingMode::ToEven,
-                                ),
+                                BinaryOps::Add => left_value + right_value,
+                                BinaryOps::Subtract => left_value - right_value,
+                                BinaryOps::Multiply => left_value * right_value,
+                                BinaryOps::Divide => left_value / right_value,
                             };
 
-                            let result_string = serde_json::to_string(&result).unwrap();
-                            return ResponseBuilder::new(result_string, c_id).build();
+                            return ResponseBuilder::new(result.to_string(), c_id).build();
                         }
                         Ok(None) => {
                             return ResponseBuilder::error(
@@ -158,30 +144,13 @@ impl UserDatabase {
                     },
                     Some(Param::Number(right_value)) => {
                         let result = match op {
-                            BinaryOps::Add => left_value.add(
-                                &right_value,
-                                BIG_FLOAT_PRECISION,
-                                RoundingMode::ToEven,
-                            ),
-                            BinaryOps::Subtract => left_value.sub(
-                                &right_value,
-                                BIG_FLOAT_PRECISION,
-                                RoundingMode::ToEven,
-                            ),
-                            BinaryOps::Multiply => left_value.mul(
-                                &right_value,
-                                BIG_FLOAT_PRECISION,
-                                RoundingMode::ToEven,
-                            ),
-                            BinaryOps::Divide => left_value.div(
-                                &right_value,
-                                BIG_FLOAT_PRECISION,
-                                RoundingMode::ToEven,
-                            ),
+                            BinaryOps::Add => left_value + right_value,
+                            BinaryOps::Subtract => left_value - right_value,
+                            BinaryOps::Multiply => left_value * right_value,
+                            BinaryOps::Divide => left_value / right_value,
                         };
 
-                        let result_string = serde_json::to_string(&result).unwrap();
-                        return ResponseBuilder::new(result_string, c_id).build();
+                        return ResponseBuilder::new(result.to_string(), c_id).build();
                     }
                     None => {
                         return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id)
@@ -202,8 +171,8 @@ impl UserDatabase {
         }
     }
 
-    fn create(&self, key: &str, value: BigFloat) -> Result<(), ServerError> {
-        let float_string = serde_json::to_string(&value)?;
+    fn create(&self, key: &str, value: BigDecimal) -> Result<(), ServerError> {
+        let float_string = value.to_string();
         match self.tree.compare_and_swap(
             key.as_bytes(),
             None as Option<&[u8]>,
@@ -213,48 +182,30 @@ impl UserDatabase {
                 info!("new number has been created. {key}={value}");
                 Ok(())
             }
-            Err(e) => {
-                error!("{e}");
-                Err(e.into())
+            Err(cas) => {
+                error!("failed to create new [\"{key}\"] entry, the key is already existed.");
+                Err(cas.into())
             }
         }
     }
 
-    fn fetch(&self, key: &str) -> Result<Option<BigFloat>, ServerError> {
+    fn fetch(&self, key: &str) -> Result<Option<BigDecimal>, ServerError> {
         if let Some(fetched) = self.tree.get(key.as_bytes())? {
-            let float_string = serde_json::from_slice(fetched.as_bytes())?;
-            if let Ok(big_float) = BigFloat::from_str(float_string) {
-                if big_float.is_nan() {
-                    error!("unexpected NAN fetched by [\"{key}\"] from user database.");
-                    Ok(None)
-                } else {
-                    Ok(Some(big_float))
-                }
-            } else {
-                Err(ServerError::ParseBigFloatFromStr)
-            }
+            let float_string = str::from_utf8(fetched.as_bytes())?;
+            let big_float = BigDecimal::from_str(float_string)?;
+            Ok(Some(big_float))
         } else {
             Ok(None)
         }
     }
 
-    fn update(&self, key: &str, new_value: BigFloat) -> Result<Option<BigFloat>, ServerError> {
-        if new_value.is_nan() {
-            error!("update value with NAN is prohibited");
-            Err(ServerError::ParseBigFloatFromStr)
+    fn update(&self, key: &str, new_value: BigDecimal) -> Result<(), ServerError> {
+        if self.tree.contains_key(key.as_bytes())? {
+            let new_string = new_value.to_string();
+            self.tree.insert(key.as_bytes(), new_string.as_bytes())?;
+            Ok(())
         } else {
-            let new_float_str = serde_json::to_string(&new_value)?;
-            if let Some(prev_value) = self.tree.insert(key.as_bytes(), new_float_str.as_bytes())? {
-                let prev_value_str = serde_json::from_slice(prev_value.as_bytes())?;
-                if let Ok(old_float) = BigFloat::from_str(prev_value_str) {
-                    info!("update [\"{key}\"] value from {prev_value_str} to {new_float_str}");
-                    Ok(Some(old_float))
-                } else {
-                    Err(ServerError::ParseBigFloatFromStr)
-                }
-            } else {
-                Ok(None)
-            }
+            Err(ServerError::DbKeyUpdate(key.into()))
         }
     }
 
