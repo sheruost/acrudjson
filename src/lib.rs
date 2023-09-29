@@ -5,6 +5,8 @@ pub mod database;
 pub mod error;
 mod jsonrpc;
 
+use std::fmt;
+
 use bigdecimal::BigDecimal;
 
 /// A JSON object to invoke basic CRUD implementation of `acrudjson` through
@@ -17,13 +19,16 @@ use bigdecimal::BigDecimal;
 ///
 /// [`RequestBuilder`]: crate::prelude::v1::RequestBuilder
 /// [JSON-RPC 2.0 Specification]: https://www.jsonrpc.org/specification
+#[derive(Debug)]
 pub enum Method {
     Create,
+    Read,
     Update,
     Delete,
     Binary(BinaryOps),
 }
 
+#[derive(Debug)]
 pub enum BinaryOps {
     Add,
     Subtract,
@@ -41,6 +46,7 @@ pub enum BinaryOps {
 /// [`UserDatabase`]: crate::database::UserDatabase
 /// [`Method`]: crate::Method
 /// [bigdecimal]: https://docs.rs/bigdecimal/latest/bigdecimal/
+#[derive(Debug)]
 pub enum Param {
     /// contains immutable utf8-string parsed from JSON string object
     Name(Box<str>),
@@ -206,6 +212,7 @@ impl From<Method> for String {
     fn from(value: Method) -> Self {
         let str_slice = match value {
             Method::Create => "create",
+            Method::Read => "read",
             Method::Update => "update",
             Method::Delete => "delete",
             Method::Binary(BinaryOps::Add) => "add",
@@ -222,6 +229,7 @@ impl From<String> for Method {
     fn from(value: String) -> Self {
         match value.as_str() {
             "create" => Method::Create,
+            "read" => Method::Read,
             "update" => Method::Update,
             "delete" => Method::Delete,
             "add" => Method::Binary(BinaryOps::Add),
@@ -229,6 +237,32 @@ impl From<String> for Method {
             "multiply" => Method::Binary(BinaryOps::Multiply),
             "divide" => Method::Binary(BinaryOps::Divide),
             _ => unreachable!(),
+        }
+    }
+}
+
+impl fmt::Display for Method {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Method::Create => write!(f, "create"),
+            Method::Read => write!(f, "read"),
+            Method::Update => write!(f, "update"),
+            Method::Delete => write!(f, "delete"),
+            Method::Binary(BinaryOps::Add) => write!(f, "add"),
+            Method::Binary(BinaryOps::Subtract) => write!(f, "subtract"),
+            Method::Binary(BinaryOps::Multiply) => write!(f, "multiply"),
+            Method::Binary(BinaryOps::Divide) => write!(f, "divide"),
+        }
+    }
+}
+
+impl fmt::Display for BinaryOps {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            BinaryOps::Add => write!(f, "add"),
+            BinaryOps::Subtract => write!(f, "subtract"),
+            BinaryOps::Multiply => write!(f, "multiply"),
+            BinaryOps::Divide => write!(f, "divide"),
         }
     }
 }
