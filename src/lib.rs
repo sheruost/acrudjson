@@ -1,7 +1,10 @@
 //! A CRUD API for arithmetic operations with astronomically large floating point numbers based on [JSON-RPC Specification].
 //!
 //! [JSON-RPC Specification]: https://www.jsonrpc.org/specification
+
+/// connection pool and data transaction queries for user database instances.
 pub mod database;
+/// server and client error types with error message constructor for JSON response payload.
 pub mod error;
 mod jsonrpc;
 
@@ -28,6 +31,9 @@ pub enum Method {
     Binary(BinaryOps),
 }
 
+/// Provide arithmetic of binary numbers wrapped by [`Method`].
+///
+/// [`Method`]: crate::Method
 #[derive(Debug)]
 pub enum BinaryOps {
     Add,
@@ -61,7 +67,9 @@ pub trait JsonInternal {
     fn parse_params(&self) -> Vec<Param>;
 }
 
+/// import `struct` implementations following JSON-RPC specification.
 pub mod prelude {
+    /// JSON-RPC 1.0 specification
     pub mod v1 {
         pub use crate::database::*;
         pub use crate::error::*;
