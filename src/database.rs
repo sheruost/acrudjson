@@ -1,6 +1,4 @@
-use crate::error::{ErrorMsg, ServerError};
-use crate::prelude::v1::*;
-use crate::{BinaryOps, Method, Param};
+use crate::{error::ServerError, BinaryOps, Method, Param};
 
 use std::path::{Path, PathBuf};
 use std::str::{self, FromStr};
@@ -61,135 +59,110 @@ impl UserDatabase {
         &self.token
     }
 
-    /// perform ACID transactions by provided [`Method`] and [`Param`]s with JSON request
-    /// identifier used to create JSON response at the end of invocation.
+    /// perform ACID transactions by provided [`Method`] and [`Param`]s from JSON Request body,
+    /// and return the result of invocation for JSON Response "result" and "error" object members.
     ///
     /// [`Method`]: crate::Method
     /// [`Param`]: crate::Param
-    pub fn transaction(&self, method: Method, params: Vec<Param>, c_id: usize) -> Vec<u8> {
+    pub fn transaction(
+        &self,
+        method: Method,
+        params: Vec<Param>,
+    ) -> Result<Option<String>, ServerError> {
         // resolve values from Params
         let mut param_iter = params.into_iter();
         let key = match param_iter.next() {
             Some(Param::Name(literal)) => literal,
             Some(_) => {
-                return ResponseBuilder::error(
-                    ErrorMsg::new(format!("the first parameter must be string literal.")),
-                    c_id,
-                )
-                .build();
+                let e = ServerError::MissingName(0);
+                error!("{e}");
+                return Err(e);
             }
             None => {
-                return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id).build();
+                let e = ServerError::MissingParam(1);
+                error!("{e}");
+                return Err(e);
             }
         };
 
-        match method {
+        let result = match method {
             Method::Create => match param_iter.next() {
                 Some(Param::Number(value)) => match self.create(&key, value) {
-                    Ok(_) => {
-                        return ResponseBuilder::success(c_id).build();
-                    }
+                    Ok(_) => Ok(None),
                     Err(e) => {
-                        return ResponseBuilder::error(e.into(), c_id).build();
+                        error!("{e}");
+                        Err(e)
                     }
                 },
-                Some(_) => {
-                    return ResponseBuilder::error(
-                        ErrorMsg::new(format!("the second parameter must be decimal number.")),
-                        c_id,
-                    )
-                    .build();
-                }
-                None => {
-                    return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id)
-                        .build();
+                Some(_) => Err(ServerError::MissingNumber(1)),
+                None => Err(ServerError::MissingParam(1)),
+            },
+            Method::Read => match self.fetch(&key) {
+                Ok(decimal) => Ok(Some(decimal.to_string())),
+                Err(e) => {
+                    error!("{e}");
+                    Err(e)
                 }
             },
             Method::Update => match param_iter.next() {
                 Some(Param::Number(new_value)) => match self.update(&key, new_value) {
-                    Ok(_) => {
-                        return ResponseBuilder::success(c_id).build();
-                    }
+                    Ok(_) => Ok(None),
                     Err(e) => {
-                        // print error message of custom DbKeyUpdate error.
                         error!("{e}");
-                        return ResponseBuilder::error(e.into(), c_id).build();
+                        Err(e)
                     }
                 },
-                Some(_) => {
-                    return ResponseBuilder::error(
-                        ErrorMsg::new(format!("the second parameter must be decimal number.")),
-                        c_id,
-                    )
-                    .build();
-                }
-                None => {
-                    return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id)
-                        .build();
-                }
+                Some(_) => Err(ServerError::MissingNumber(1)),
+                None => Err(ServerError::MissingParam(1)),
             },
             Method::Delete => match self.delete(&key) {
-                Ok(_) => {
-                    return ResponseBuilder::success(c_id).build();
-                }
+                Ok(_) => Ok(None),
                 Err(e) => {
                     // print error message of custom DbKeyNotFound error.
                     error!("{e}");
-                    return ResponseBuilder::error(e.into(), c_id).build();
+                    Err(e)
                 }
             },
             Method::Binary(op) => match self.fetch(&key) {
-                Ok(Some(left_value)) => match param_iter.next() {
+                Ok(left_value) => match param_iter.next() {
                     Some(Param::Name(second_key)) => match self.fetch(&second_key) {
-                        Ok(Some(right_value)) => {
-                            let result = match op {
+                        Ok(right_value) => {
+                            let res = match op {
                                 BinaryOps::Add => left_value + right_value,
                                 BinaryOps::Subtract => left_value - right_value,
                                 BinaryOps::Multiply => left_value * right_value,
                                 BinaryOps::Divide => left_value / right_value,
                             };
 
-                            return ResponseBuilder::new(result.to_string(), c_id).build();
-                        }
-                        Ok(None) => {
-                            return ResponseBuilder::error(
-                                ServerError::DbKeyNotFound(second_key.to_string().into_boxed_str())
-                                    .into(),
-                                c_id,
-                            )
-                            .build();
+                            Ok(Some(res.to_string()))
                         }
                         Err(e) => {
-                            return ResponseBuilder::error(e.into(), c_id).build();
+                            error!("{e}");
+                            Err(e)
                         }
                     },
                     Some(Param::Number(right_value)) => {
-                        let result = match op {
+                        info!(
+                            "performing binary operation, method = {}, LHS = {}, RHS = {}",
+                            op,
+                            left_value.to_string(),
+                            right_value.to_string()
+                        );
+                        let res = match op {
                             BinaryOps::Add => left_value + right_value,
                             BinaryOps::Subtract => left_value - right_value,
                             BinaryOps::Multiply => left_value * right_value,
                             BinaryOps::Divide => left_value / right_value,
                         };
-
-                        return ResponseBuilder::new(result.to_string(), c_id).build();
+                        Ok(Some(res.to_string()))
                     }
-                    None => {
-                        return ResponseBuilder::error(ServerError::MissingParam(1).into(), c_id)
-                            .build();
-                    }
+                    None => Err(ServerError::MissingParam(1)),
                 },
-                Ok(None) => {
-                    return ResponseBuilder::error(
-                        ServerError::DbKeyNotFound(key.to_string().into_boxed_str()).into(),
-                        c_id,
-                    )
-                    .build();
-                }
-                Err(e) => {
-                    return ResponseBuilder::error(e.into(), c_id).build();
-                }
+                Err(e) => Err(e),
             },
-        }
+        };
+
+        result
     }
 
     fn create(&self, key: &str, value: BigDecimal) -> Result<(), ServerError> {
@@ -200,30 +173,33 @@ impl UserDatabase {
             Some(float_string.as_bytes()),
         )? {
             Ok(_) => {
-                info!("new number has been created. {key}={value}");
+                info!("create new key entry [\"{key}\"] with number = {float_string}");
                 Ok(())
             }
-            Err(cas) => {
-                error!("failed to create new [\"{key}\"] entry, the key is already existed.");
-                Err(cas.into())
-            }
+            Err(cas) => Err(cas.into()),
         }
     }
 
-    fn fetch(&self, key: &str) -> Result<Option<BigDecimal>, ServerError> {
+    fn fetch(&self, key: &str) -> Result<BigDecimal, ServerError> {
         if let Some(fetched) = self.tree.get(key.as_bytes())? {
             let float_string = str::from_utf8(fetched.as_bytes())?;
             let big_float = BigDecimal::from_str(float_string)?;
-            Ok(Some(big_float))
+            info!("fetch [\"{key}\"] value: {float_string}");
+            Ok(big_float)
         } else {
-            Ok(None)
+            Err(ServerError::DbKeyNotFound(key.into()))
         }
     }
 
     fn update(&self, key: &str, new_value: BigDecimal) -> Result<(), ServerError> {
         if self.tree.contains_key(key.as_bytes())? {
-            let new_string = new_value.to_string();
-            self.tree.insert(key.as_bytes(), new_string.as_bytes())?;
+            let new_float_string = new_value.to_string();
+            let old_val_bytes = self
+                .tree
+                .insert(key.as_bytes(), new_float_string.as_bytes())?
+                .ok_or(ServerError::DbEmptyValue(key.into()))?;
+            let old_float_string = str::from_utf8(old_val_bytes.as_bytes())?;
+            info!("update [\"{key}\"] value from {old_float_string} to {new_float_string}");
             Ok(())
         } else {
             Err(ServerError::DbKeyUpdate(key.into()))
