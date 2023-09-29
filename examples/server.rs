@@ -103,11 +103,13 @@ async fn process(
         if new_checksum == parsed.get_checksum() {
             let req_body = parsed.get_request_body().unwrap();
             let default_user_database = pool.open_user_database("default".as_bytes()).unwrap();
-            let resp_payload = default_user_database.transaction(
-                req_body.parse_method(),
-                req_body.parse_params(),
-                req_body.id,
-            );
+            let resp_payload = match default_user_database
+                .transaction(req_body.parse_method(), req_body.parse_params())
+            {
+                Ok(Some(res)) => ResponseBuilder::new(res, req_body.id).build(),
+                Ok(None) => ResponseBuilder::success(req_body.id).build(),
+                Err(e) => ResponseBuilder::error(e.into(), req_body.id).build(),
+            };
 
             match send_sock.send_to(resp_payload.as_bytes(), peer).await {
                 Ok(_) => info!(
