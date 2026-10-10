@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  nightly:
+    name: nightly + Polonius
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install nightly --profile minimal -c clippy -c rustfmt
+      - run: cargo +nightly fmt --check
+      - run: cargo +nightly clippy --all-features --all-targets -- -D warnings
+      - run: cargo +nightly test --all-features
+
+  no-std:
+    name: no_std protocol side
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install nightly --profile minimal --target thumbv7em-none-eabihf
+      - run: cargo +nightly build --no-default-features --target thumbv7em-none-eabihf
