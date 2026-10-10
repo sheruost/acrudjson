@@ -1,0 +1,5 @@
+[build]
+# Polonius, the next-generation borrow checker. `LineFramer::next` in
+# src/server/framer.rs depends on it. See "Nightly features" in the README.
+rustflags = ["-Zpolonius=next"]
+rustdocflags = ["-Zpolonius=next"]
