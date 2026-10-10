@@ -1,6 +1,6 @@
 [package]
 name = "acrudjson"
-version = "0.2.0"
+version = "0.2.1"
 description = "Atomic CRUD and arbitrary-precision decimal arithmetic over JSON-RPC 1.0 and 2.0, backed by redb."
 authors = ["Sheldon Knuth <sheldon@abackbone.net>"]
 repository = "https://github.com/sheruost/acrudjson"

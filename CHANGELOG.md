@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1] - 2026-10-11
+
+### Fixed
+
+- A batch element written as a JSON array was run as a request. It now gets
+  an Invalid Request reply, like any other element that isn't an object.
+- `Op::eval` could be called from other crates, skipping the `MAX_DIGITS` and
+  `MAX_SCALE` checks. Operations now run only through `Op::apply`.
+- `Error::Storage` printed its cause in `Display` and also returned it from
+  `source()`, so error chains showed it twice. `Display` now says only
+  "storage error".
+- `cargo test --no-default-features` failed on a doc example that needs `std`.
+
 ## [0.2.0] - 2026-10-10
 
 A rewrite. The 0.1 API is gone, and databases written by 0.1 can't be read.
@@ -53,4 +66,5 @@ A rewrite. The 0.1 API is gone, and databases written by 0.1 can't be read.
 - The server no longer panics on an unknown method, a division by zero, or
   malformed input. Each is answered with a JSON-RPC error.
 
+[0.2.1]: https://github.com/sheruost/acrudjson/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sheruost/acrudjson/compare/v0.1.2...v0.2.0
