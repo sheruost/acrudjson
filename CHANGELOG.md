@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-10-10
 
 A rewrite. The 0.1 API is gone, and databases written by 0.1 can't be read.
 
@@ -53,4 +53,4 @@ A rewrite. The 0.1 API is gone, and databases written by 0.1 can't be read.
 - The server no longer panics on an unknown method, a division by zero, or
   malformed input. Each is answered with a JSON-RPC error.
 
-[0.2.0]: https://github.com/sheruost/acrudjson/compare/v0.1.2...HEAD
+[0.2.0]: https://github.com/sheruost/acrudjson/compare/v0.1.2...v0.2.0
