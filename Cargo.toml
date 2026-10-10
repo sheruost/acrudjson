@@ -1,33 +1,55 @@
 [package]
 name = "acrudjson"
-version = "0.1.2"
-description = "Modern Rustlang with async support for CRUD operation based on JSONRPC specification."
+version = "0.2.0"
+description = "Atomic CRUD and arbitrary-precision decimal arithmetic over JSON-RPC 1.0 and 2.0, backed by redb."
 authors = ["Sheldon Knuth <sheldon@abackbone.net>"]
 repository = "https://github.com/sheruost/acrudjson"
-license = "Apache-2.0/MIT"
+license = "MIT OR Apache-2.0"
 readme = "README.md"
-edition = "2021"
+keywords = ["json-rpc", "jsonrpc", "bigdecimal", "redb", "crud"]
+categories = ["network-programming", "database", "mathematics"]
+edition = "2024"
+exclude = [".github"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["std"]
+## Store on redb. Without it the crate is `no_std` + `alloc`.
+std = ["dep:redb", "bigdecimal/std", "serde/std", "serde_json/std"]
+## Async UDP and TCP servers built on tokio.
+tokio = ["std", "dep:tokio"]
+
 [dependencies]
-bigdecimal = "0.4"
-crc32fast = "1"
-log = "0.4"
-thiserror = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sled = "0.34.7"
-zerocopy = "0.7"
+bigdecimal = { version = "0.4.7", default-features = false }
+redb = { version = "4", optional = true }
+serde = { version = "1.0.194", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1.0.134", default-features = false, features = ["alloc", "raw_value"] }
+tokio = { version = "1.22", optional = true, features = ["net", "io-util", "rt", "rt-multi-thread"] }
 
 [dev-dependencies]
-anyhow = "1"
-env_logger = "0.10"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+serde = "1.0.194"
+tokio = { version = "1.22", features = ["macros", "net", "io-util", "rt-multi-thread", "sync", "time"] }
+
+[[test]]
+name = "rpc"
+required-features = ["std"]
+
+[[test]]
+name = "ergonomics"
+required-features = ["std"]
 
 [[example]]
 name = "server"
-path = "examples/server.rs"
+required-features = ["tokio"]
 
 [[example]]
 name = "client"
-path = "examples/client.rs"
+required-features = ["tokio"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustc-args = ["-Zpolonius=next"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

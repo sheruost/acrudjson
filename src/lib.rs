@@ -1,276 +1,193 @@
-//! A CRUD API for arithmetic operations with astronomically large floating point numbers based on [JSON-RPC Specification].
+//! Store big decimals and work on them over [JSON-RPC 1.0] or [JSON-RPC 2.0].
 //!
-//! [JSON-RPC Specification]: https://www.jsonrpc.org/specification
+//! The protocol side is `no_std` (it needs `alloc`). Storage needs `std`.
+//!
+//! | module | needs | what |
+//! |---|---|---|
+//! | [`rpc`] | `alloc` | turns request bytes into reply bytes over any [`Backend`] |
+//! | [`client`] | `alloc` | builds requests, reads replies |
+//! | [`op`] | `alloc` | `Add`, `Subtract`, `Multiply`, `Divide` |
+//! | `Store` | `std` | a [`Backend`] on [redb] |
+//! | `server` | `tokio` | UDP and TCP servers |
+//!
+//! Operations and protocol versions are types, not enum values:
+//!
+//! ```
+//! # #[cfg(feature = "std")] {
+//! use acrudjson::op::Multiply;
+//! use acrudjson::{Backend, BigDecimal, Store};
+//!
+//! let store = Store::in_memory().unwrap();
+//! store.create("lab", "G", &"6.6743e-11".parse().unwrap()).unwrap();
+//! let doubled = store.compute("lab", Multiply, "G", &BigDecimal::from(2)).unwrap();
+//! assert_eq!(doubled, "1.33486e-10".parse::<BigDecimal>().unwrap());
+//! # }
+//! ```
+//!
+//! | method | params | result |
+//! |---|---|---|
+//! | `create` | `key`, `value` | `true` |
+//! | `read` | `key` | the value |
+//! | `update` | `key`, `value` | the previous value |
+//! | `delete` | `key` | the removed value |
+//! | `add`, `subtract`, `multiply`, `divide` | `lhs`, `rhs`, optional `into` | the result |
+//!
+//! Params can be an array or an object. Keys are strings, values are numbers.
+//! In arithmetic a string is a key and a number is a literal. `into` saves
+//! the result under that key.
+//!
+//! [JSON-RPC 1.0]: https://www.jsonrpc.org/specification_v1
+//! [JSON-RPC 2.0]: https://www.jsonrpc.org/specification
+//! [redb]: https://docs.rs/redb
 
-/// connection pool and data transaction queries for user database instances.
-pub mod database;
-/// server and client error types with error message constructor for JSON response payload.
-pub mod error;
-mod jsonrpc;
+#![cfg_attr(not(feature = "std"), no_std)]
+#![feature(type_info)]
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
-use std::fmt;
+extern crate alloc;
 
-use bigdecimal::BigDecimal;
+mod backend;
+mod call;
+pub mod client;
+mod error;
+mod json;
+mod number;
+pub mod op;
+mod reflect;
+pub mod rpc;
+#[cfg(feature = "tokio")]
+pub mod server;
+#[cfg(feature = "std")]
+mod store;
+mod version;
 
-/// A JSON object to invoke basic CRUD implementation of `acrudjson` through
-/// JSON-RPC protocol. It can be used for [`RequestBuilder`] in frontend without
-/// parsing JSON string.
-///
-/// NOTE:
-///     - method name beginning with `rpc` followed by `,` are preserved for RPC internal
-///     methods based on [JSON-RPC 2.0 Specification].
-///
-/// [`RequestBuilder`]: crate::prelude::v1::RequestBuilder
-/// [JSON-RPC 2.0 Specification]: https://www.jsonrpc.org/specification
-#[derive(Debug)]
-pub enum Method {
-    Create,
-    Read,
-    Update,
-    Delete,
-    Binary(BinaryOps),
+pub use bigdecimal::BigDecimal;
+pub use error::Error;
+pub use number::{MAX_DIGITS, MAX_SCALE};
+pub use rpc::code;
+#[cfg(feature = "std")]
+pub use store::Store;
+pub use version::{V1, V2};
+
+use alloc::borrow::Cow;
+use alloc::vec::Vec;
+use core::fmt;
+
+use serde_json::value::RawValue;
+
+/// Keeps the crate's traits closed to outside implementations.
+mod sealed {
+    pub trait Sealed {}
 }
 
-/// Provide arithmetic of binary numbers wrapped by [`Method`].
+/// Where values live: `Store` with `std`, or your own storage.
 ///
-/// [`Method`]: crate::Method
-#[derive(Debug)]
-pub enum BinaryOps {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-}
+/// Each method works on one namespace `ns`, such as a user id.
+pub trait Backend {
+    /// Stores `value` under a new `key`.
+    fn create(&self, ns: &str, key: &str, value: &BigDecimal) -> Result<(), Error>;
 
-/// A JSON object to provide key or value members for variable assignment or storing entries
-/// in [`UserDatabase`] following with [`Method`].
-///
-/// NOTE:
-///     - `Param::Number(number)` is provided by [bigdecimal] for decimal representation and large
-///     floating number computation.
-///
-/// [`UserDatabase`]: crate::database::UserDatabase
-/// [`Method`]: crate::Method
-/// [bigdecimal]: https://docs.rs/bigdecimal/latest/bigdecimal/
-#[derive(Debug)]
-pub enum Param {
-    /// contains immutable utf8-string parsed from JSON string object
-    Name(Box<str>),
-    /// contains big decimal number parsed from JSON string object.
-    Number(BigDecimal),
-}
+    /// Returns the value stored under `key`.
+    fn read(&self, ns: &str, key: &str) -> Result<BigDecimal, Error>;
 
-pub trait JsonInternal {
-    /// parse JSON member "method" value into `Method`.
-    fn parse_method(&self) -> Method;
-    /// parse JSON member "params" array values into `Vec<Param>`.
-    fn parse_params(&self) -> Vec<Param>;
-}
+    /// Replaces the value of `key` and returns the old one.
+    fn update(&self, ns: &str, key: &str, value: &BigDecimal) -> Result<BigDecimal, Error>;
 
-/// import `struct` implementations following JSON-RPC specification.
-pub mod prelude {
-    /// JSON-RPC 1.0 specification
-    pub mod v1 {
-        pub use crate::database::*;
-        pub use crate::error::*;
-        pub use crate::jsonrpc::v1::*;
-        pub use crate::{JsonInternal, Method, Param};
+    /// Removes `key` and returns the value it held.
+    fn delete(&self, ns: &str, key: &str) -> Result<BigDecimal, Error>;
 
-        use std::str::FromStr;
+    /// Computes `lhs op rhs`.
+    fn compute<O: Op, L: Operand + ?Sized, R: Operand + ?Sized>(
+        &self,
+        ns: &str,
+        op: O,
+        lhs: &L,
+        rhs: &R,
+    ) -> Result<BigDecimal, Error>;
 
-        use bigdecimal::BigDecimal;
+    /// Computes `lhs op rhs` and saves the result under `into`, atomically.
+    fn compute_into<O: Op, L: Operand + ?Sized, R: Operand + ?Sized>(
+        &self,
+        ns: &str,
+        op: O,
+        lhs: &L,
+        rhs: &R,
+        into: &str,
+    ) -> Result<BigDecimal, Error>;
 
-        /// Used to compose JSON request based on JSON-RPC 1.0 specification.
-        ///
-        /// NOTE:
-        ///     - the result payload contains a `u32` crc32 checksum in little-endianness in tail
-        ///     bytes.
-        pub struct RequestBuilder {
-            body: ReqBody,
-        }
-
-        impl RequestBuilder {
-            /// parse JSON string into [`ReqBody`] to initialise the builder.
-            ///
-            /// [`ReqBody`]: crate::prelude::v1::ReqBody
-            pub fn from_json(json_string: &str) -> Result<Self, ClientError> {
-                let body: ReqBody = serde_json::from_str(json_string)?;
-                Ok(RequestBuilder { body })
-            }
-
-            /// creates and return [`ReqBody`] as builder.
-            ///
-            /// [`ReqBody`]: crate::prelude::v1::ReqBody
-            pub fn new(method: Method, params: Vec<String>, id: usize) -> Self {
-                RequestBuilder {
-                    body: ReqBody {
-                        jsonrpc: "1.0".to_string(),
-                        method: method.into(),
-                        params,
-                        id,
-                    },
-                }
-            }
-
-            /// calculate crc32 checksum then append the bytes after request body.
-            pub fn build(self) -> Result<Vec<u8>, serde_json::Error> {
-                let mut payload = serde_json::to_vec(&self.body)?;
-                let checksum = crc32fast::hash(&payload);
-                payload.extend_from_slice(&checksum.to_le_bytes());
-
-                Ok(payload)
-            }
-        }
-
-        /// Used to compose JSON response based on JSON-RPC 1.0 specification.
-        ///
-        /// NOTE:
-        ///     - the result payload contains a `u32` crc32 checksum in little-endianness in tail
-        ///     bytes.
-        pub struct ResponseBuilder {
-            body: RespBody,
-        }
-
-        impl ResponseBuilder {
-            /// parse JSON string into [`RespBody`] to initialise the builder.
-            ///
-            /// [`RespBody`]: crate::prelude::v1::RespBody
-            pub fn from_json(json_string: &str) -> Result<Self, ClientError> {
-                let body: RespBody = serde_json::from_str(json_string)?;
-                Ok(ResponseBuilder { body })
-            }
-
-            /// creates and return [`RespBody`] as builder.
-            ///
-            /// [`RespBody`]: crate::prelude::v1::RespBody
-            pub fn new(result: String, id: usize) -> Self {
-                ResponseBuilder {
-                    body: RespBody {
-                        result: Some(result),
-                        error: None,
-                        id,
-                    },
-                }
-            }
-
-            /// compose JSON response when target request proceeds successfully.
-            /// NOTE: the `id` should be same as target JSON request.
-            pub fn success(id: usize) -> Self {
-                ResponseBuilder {
-                    body: RespBody {
-                        result: Some("success".to_string()),
-                        error: None,
-                        id,
-                    },
-                }
-            }
-
-            /// compose JSON response when target request proceeds failed with `ErrorMsg`
-            /// indicates error message in JSON "error" field.
-            /// NOTE: the `id` should be same as target JSON request.
-            pub fn error(msg: ErrorMsg, id: usize) -> Self {
-                ResponseBuilder {
-                    body: RespBody {
-                        result: None,
-                        error: Some(msg.into_inner()),
-                        id,
-                    },
-                }
-            }
-
-            /// calculate crc32 checksum then append the bytes after response body.
-            pub fn build(self) -> Vec<u8> {
-                if let Ok(mut payload) = serde_json::to_vec(&self.body) {
-                    let checksum = crc32fast::hash(&payload);
-                    payload.extend_from_slice(&checksum.to_le_bytes());
-
-                    payload
-                } else {
-                    todo!()
-                }
-            }
-        }
-
-        impl JsonInternal for ReqBody {
-            fn parse_method(&self) -> Method {
-                self.method.clone().into()
-            }
-
-            fn parse_params(&self) -> Vec<Param> {
-                let results: Vec<Param> = self
-                    .params
-                    .clone()
-                    .into_iter()
-                    .map(|param| {
-                        if let Ok(number) = BigDecimal::from_str(&param) {
-                            Param::Number(number)
-                        } else {
-                            Param::Name(param.into_boxed_str())
-                        }
-                    })
-                    .collect();
-
-                results
-            }
-        }
+    /// Handles one JSON-RPC message and appends the reply to `out`.
+    ///
+    /// Returns `false` if there is no reply (only notifications). `out` is
+    /// not cleared first.
+    fn handle(&self, ns: &str, input: &[u8], out: &mut Vec<u8>) -> bool
+    where
+        Self: Sized,
+    {
+        rpc::handle(self, ns, input, out)
     }
 }
 
-impl From<Method> for String {
-    fn from(value: Method) -> Self {
-        let str_slice = match value {
-            Method::Create => "create",
-            Method::Read => "read",
-            Method::Update => "update",
-            Method::Delete => "delete",
-            Method::Binary(BinaryOps::Add) => "add",
-            Method::Binary(BinaryOps::Subtract) => "subtract",
-            Method::Binary(BinaryOps::Multiply) => "multiply",
-            Method::Binary(BinaryOps::Divide) => "divide",
-        };
+/// An arithmetic operation: [`Add`](op::Add), [`Subtract`](op::Subtract),
+/// [`Multiply`](op::Multiply) or [`Divide`](op::Divide).
+///
+/// `Display` prints the JSON-RPC method name.
+pub trait Op: sealed::Sealed + Copy + Default + fmt::Display {
+    /// The JSON-RPC method name.
+    const NAME: &'static str;
 
-        str_slice.to_string()
+    #[doc(hidden)]
+    fn eval(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error>;
+
+    /// Computes `lhs op rhs`, refusing numbers over [`MAX_DIGITS`] or [`MAX_SCALE`].
+    fn apply(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error> {
+        number::check(lhs)?;
+        number::check(rhs)?;
+        let result = Self::eval(lhs, rhs)?;
+        number::check(&result)?;
+        Ok(result)
     }
 }
 
-impl From<String> for Method {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "create" => Method::Create,
-            "read" => Method::Read,
-            "update" => Method::Update,
-            "delete" => Method::Delete,
-            "add" => Method::Binary(BinaryOps::Add),
-            "subtract" => Method::Binary(BinaryOps::Subtract),
-            "multiply" => Method::Binary(BinaryOps::Multiply),
-            "divide" => Method::Binary(BinaryOps::Divide),
-            _ => unreachable!(),
-        }
-    }
+/// One side of an [`Op`]: a key (`str`, `String`) or a literal (`BigDecimal`,
+/// any integer). Floats are left out: they would round.
+pub trait Operand: sealed::Sealed {
+    /// Returns the literal, or looks the key up with `lookup`.
+    fn resolve(
+        &self,
+        lookup: impl FnOnce(&str) -> Result<BigDecimal, Error>,
+    ) -> Result<Cow<'_, BigDecimal>, Error>;
+
+    /// Writes the operand as a JSON-RPC param.
+    #[doc(hidden)]
+    fn write_json(&self, out: &mut Vec<u8>);
 }
 
-impl fmt::Display for Method {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Method::Create => write!(f, "create"),
-            Method::Read => write!(f, "read"),
-            Method::Update => write!(f, "update"),
-            Method::Delete => write!(f, "delete"),
-            Method::Binary(BinaryOps::Add) => write!(f, "add"),
-            Method::Binary(BinaryOps::Subtract) => write!(f, "subtract"),
-            Method::Binary(BinaryOps::Multiply) => write!(f, "multiply"),
-            Method::Binary(BinaryOps::Divide) => write!(f, "divide"),
-        }
-    }
+/// A JSON-RPC version: [`V1`] or [`V2`].
+///
+/// Requests and replies differ only in a few fixed bytes, so a version is
+/// just a set of constants.
+pub trait Version: sealed::Sealed + Copy + Default {
+    #[doc(hidden)]
+    const OPEN: &'static [u8];
+    #[doc(hidden)]
+    const NOTIFICATION_ID: &'static [u8];
+    #[doc(hidden)]
+    const RESULT_END: &'static [u8];
+    #[doc(hidden)]
+    const ERROR_START: &'static [u8];
+
+    /// The id to reply with: `Some(None)` for a notification, `None` if the
+    /// id is not allowed.
+    #[doc(hidden)]
+    fn reply_id(id: Option<&RawValue>) -> Option<Option<&RawValue>>;
 }
 
-impl fmt::Display for BinaryOps {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            BinaryOps::Add => write!(f, "add"),
-            BinaryOps::Subtract => write!(f, "subtract"),
-            BinaryOps::Multiply => write!(f, "multiply"),
-            BinaryOps::Divide => write!(f, "divide"),
-        }
-    }
+/// A method call: one type per method, in [`client`].
+pub trait Call: sealed::Sealed {
+    /// The JSON-RPC method name.
+    const METHOD: &'static str;
+
+    #[doc(hidden)]
+    fn write_params(&self, out: &mut Vec<u8>);
 }
