@@ -1,6 +1,6 @@
 //! Arithmetic operations, one type each.
 
-use crate::sealed::Sealed;
+use crate::sealed::{Sealed, Token};
 use crate::{Error, MAX_DIGITS, Op};
 
 use core::fmt;
@@ -40,7 +40,7 @@ name_ops!(Add, Subtract, Multiply, Divide);
 impl Op for Add {
     const NAME: &'static str = "add";
 
-    fn eval(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error> {
+    fn eval(lhs: &BigDecimal, rhs: &BigDecimal, _: Token) -> Result<BigDecimal, Error> {
         fits_aligned(lhs, rhs)?;
         Ok(lhs + rhs)
     }
@@ -49,7 +49,7 @@ impl Op for Add {
 impl Op for Subtract {
     const NAME: &'static str = "subtract";
 
-    fn eval(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error> {
+    fn eval(lhs: &BigDecimal, rhs: &BigDecimal, _: Token) -> Result<BigDecimal, Error> {
         fits_aligned(lhs, rhs)?;
         Ok(lhs - rhs)
     }
@@ -58,7 +58,7 @@ impl Op for Subtract {
 impl Op for Multiply {
     const NAME: &'static str = "multiply";
 
-    fn eval(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error> {
+    fn eval(lhs: &BigDecimal, rhs: &BigDecimal, _: Token) -> Result<BigDecimal, Error> {
         Ok(lhs * rhs)
     }
 }
@@ -66,7 +66,7 @@ impl Op for Multiply {
 impl Op for Divide {
     const NAME: &'static str = "divide";
 
-    fn eval(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error> {
+    fn eval(lhs: &BigDecimal, rhs: &BigDecimal, _: Token) -> Result<BigDecimal, Error> {
         if rhs.is_zero() {
             return Err(Error::DivisionByZero);
         }

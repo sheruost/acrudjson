@@ -79,6 +79,10 @@ use serde_json::value::RawValue;
 /// Keeps the crate's traits closed to outside implementations.
 mod sealed {
     pub trait Sealed {}
+
+    /// Lets the crate call `Op::eval`; other crates can't name or build it.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Token;
 }
 
 /// Where values live: `Store` with `std`, or your own storage.
@@ -132,18 +136,29 @@ pub trait Backend {
 /// [`Multiply`](op::Multiply) or [`Divide`](op::Divide).
 ///
 /// `Display` prints the JSON-RPC method name.
+///
+/// Only [`Op::apply`] runs an operation from outside the crate, so the
+/// [`MAX_DIGITS`] and [`MAX_SCALE`] checks can't be skipped:
+///
+/// ```compile_fail,E0061
+/// use acrudjson::op::Multiply;
+/// use acrudjson::{BigDecimal, Op};
+///
+/// let big = BigDecimal::from(1);
+/// let _ = Multiply::eval(&big, &big);
+/// ```
 pub trait Op: sealed::Sealed + Copy + Default + fmt::Display {
     /// The JSON-RPC method name.
     const NAME: &'static str;
 
     #[doc(hidden)]
-    fn eval(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error>;
+    fn eval(lhs: &BigDecimal, rhs: &BigDecimal, _: sealed::Token) -> Result<BigDecimal, Error>;
 
     /// Computes `lhs op rhs`, refusing numbers over [`MAX_DIGITS`] or [`MAX_SCALE`].
     fn apply(lhs: &BigDecimal, rhs: &BigDecimal) -> Result<BigDecimal, Error> {
         number::check(lhs)?;
         number::check(rhs)?;
-        let result = Self::eval(lhs, rhs)?;
+        let result = Self::eval(lhs, rhs, sealed::Token)?;
         number::check(&result)?;
         Ok(result)
     }
