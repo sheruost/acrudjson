@@ -17,6 +17,7 @@ jobs:
       - run: cargo +nightly fmt --check
       - run: cargo +nightly clippy --all-features --all-targets -- -D warnings
       - run: cargo +nightly test --all-features
+      - run: cargo +nightly test --no-default-features
 
   no-std:
     name: no_std protocol side

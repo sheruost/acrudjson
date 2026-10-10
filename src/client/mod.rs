@@ -4,6 +4,8 @@
 //! too: [`V1`](crate::V1) or [`V2`](crate::V2).
 //!
 //! ```
+//! # #[cfg(feature = "std")]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use acrudjson::client::{self, Create, Response};
 //! use acrudjson::{Backend, Store, V2};
 //!
@@ -17,7 +19,10 @@
 //! store.handle("default", &request, &mut bytes);
 //! let response = Response::try_from(&bytes[..])?;
 //! assert!(matches!(response.result(), Ok(raw) if raw.get() == "true"));
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # Ok(())
+//! # }
+//! # #[cfg(not(feature = "std"))]
+//! # fn main() {}
 //! ```
 
 mod batch;
