@@ -64,10 +64,15 @@ impl<'de, B: Backend> Visitor<'de> for &mut Batch<'_, B> {
             if self.written > 0 {
                 self.out.push(b',');
             }
-            // Non-objects like `1` get their own Invalid Request reply.
-            let wrote = match serde_json::from_str::<Envelope<'_>>(element.get()) {
-                Ok(envelope) => super::call(self.backend, self.ns, envelope, self.out),
-                Err(_) => {
+            // Non-objects like `1` get their own Invalid Request reply. Arrays
+            // are checked here because serde would accept them as a struct.
+            let envelope = match element.get().starts_with('{') {
+                true => serde_json::from_str::<Envelope<'_>>(element.get()).ok(),
+                false => None,
+            };
+            let wrote = match envelope {
+                Some(envelope) => super::call(self.backend, self.ns, envelope, self.out),
+                None => {
                     write_reply::<V2, bool>(self.out, None, Err(Fault::INVALID_REQUEST));
                     true
                 }

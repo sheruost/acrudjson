@@ -338,3 +338,18 @@ fn invalid_params_list_the_expected_names() {
     let r = call(&s, r#"{"jsonrpc":"2.0","method":"add","params":[],"id":2}"#).unwrap();
     assert_eq!(r["error"]["data"], json!(["lhs", "rhs", "into"]));
 }
+
+#[test]
+fn batch_elements_must_be_objects() {
+    let s = store();
+    // A derived struct would also accept an array, filled by position.
+    let r = call(&s, r#"[["2.0","update",["a",1],7]]"#).unwrap();
+    assert_eq!(r[0]["error"]["code"], -32600);
+    assert_eq!(r[0]["id"], Value::Null);
+    let r = call(
+        &s,
+        r#"{"jsonrpc":"2.0","method":"read","params":["a"],"id":1}"#,
+    )
+    .unwrap();
+    assert_eq!(r["result"], 6, "the array element must not run");
+}
