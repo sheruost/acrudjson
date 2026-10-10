@@ -203,6 +203,7 @@ acrudjson = { version = "0.2", default-features = false }
 
 ## License
 
-MIT or Apache 2.0, at your option.
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or
+[MIT](LICENSE-MIT), at your option.
 
 [redb]: https://www.redb.org
