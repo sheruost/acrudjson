@@ -27,7 +27,7 @@ impl fmt::Display for Error {
             Error::DivisionByZero => f.write_str("division by zero"),
             Error::OutOfRange => f.write_str("number out of range"),
             Error::Corrupt => f.write_str("stored value is corrupt"),
-            Error::Storage(e) => write!(f, "storage error: {e}"),
+            Error::Storage(_) => f.write_str("storage error"),
         }
     }
 }
@@ -75,5 +75,33 @@ impl From<Error> for std::io::Error {
             Error::Storage(_) => ErrorKind::Other,
         };
         std::io::Error::new(kind, e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+    use core::error::Error as _;
+
+    #[derive(Debug)]
+    struct DiskFull;
+
+    impl fmt::Display for DiskFull {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("disk full")
+        }
+    }
+
+    impl core::error::Error for DiskFull {}
+
+    #[test]
+    fn storage_cause_is_reported_once() {
+        let e = Error::Storage(Box::new(DiskFull));
+        assert_eq!(e.to_string(), "storage error");
+        assert_eq!(
+            e.source().map(|s| s.to_string()).as_deref(),
+            Some("disk full")
+        );
     }
 }
